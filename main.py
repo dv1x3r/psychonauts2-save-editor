@@ -8,10 +8,11 @@ import json
 
 class ISerializable(ABC):
     def print(self):
-        pprint(self.to_dict())
+        pprint(json.loads(json.dumps(self, default=lambda o: o.__dict__)))
 
-    def to_dict(self):
-        return json.loads(json.dumps(self, default=lambda o: o.__dict__))
+    def to_json(self, file_path: str):
+        with open(file_path, 'w') as f:
+            f.write(json.dumps(self, default=lambda o: o.__dict__, indent=4))
 
     @abstractmethod
     def read(self, reader: BinaryReader):
@@ -106,6 +107,7 @@ class Gvas(ISerializable):
         self.package_version: int
         self.engine_version: EngineVersion
         self.custom_format: CustomFormat
+        self.raw: str
 
     def read(self, reader: BinaryReader):
         self.format = reader.read_bytes(4).decode('utf-8')
@@ -113,11 +115,13 @@ class Gvas(ISerializable):
         self.package_version = reader.read_int32()
         self.engine_version = reader.read_object(EngineVersion)
         self.custom_format = reader.read_object(CustomFormat)
+        self.raw = reader.buffer.read().hex()
 
 
 if __name__ == '__main__':
-    f = open('samples/04. tooth fall/Psychonauts2Save_0.sav', 'rb')
-    reader = BinaryReader(f)
-    gvas = Gvas()
-    gvas.read(reader)
-    gvas.print()
+    with open('samples/04. tooth fall/Psychonauts2Save_0.sav', 'rb') as f:
+        reader = BinaryReader(f)
+        gvas = Gvas()
+        gvas.read(reader)
+        # gvas.print()
+        gvas.to_json('samples/sample.json')
