@@ -83,7 +83,6 @@ class GvasProperty:
     pass
 
 
-@dataclass_json
 @dataclass
 class CustomFormatEntry(ISerializable):
     id: str = None
@@ -115,7 +114,6 @@ class CustomFormat(ISerializable):
             writer.write_object(entry)
 
 
-@dataclass_json
 @dataclass
 class EngineVersion(ISerializable):
     major: int = None
