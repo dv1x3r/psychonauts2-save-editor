@@ -16,8 +16,8 @@ class ISerializable(ABC):
     def read(self, reader: BinaryReader):
         raise NotImplementedError
 
-    # @abstractmethod
-    def write(self, writer: BinaryWriter) -> ISerializable:
+    @abstractmethod
+    def write(self, writer: BinaryWriter):
         raise NotImplementedError
 
 
@@ -52,8 +52,14 @@ class BinaryWriter:
     def __init__(self, buffer: BufferedReader):
         self.buffer = buffer
 
-    def write_object(self, ObjectClass: type[ISerializable]):
-        return ObjectClass().write(self)
+    def write_object(self, instance: ISerializable):
+        instance.write(self)
+
+    def write_bytes(self, data: bytes):
+        self.buffer.write(data)
+
+    def write_int32(self, data: int):
+        self.buffer.write(int.to_bytes(data, 4, 'little'))
 
 
 class GvasProperty:
@@ -69,6 +75,9 @@ class CustomFormatEntry(ISerializable):
         self.id = reader.read_uuid()
         self.value = reader.read_int32()
 
+    def write(self, writer: BinaryWriter):
+        return super().write(writer)
+
 
 @dataclass
 class CustomFormat(ISerializable):
@@ -80,6 +89,9 @@ class CustomFormat(ISerializable):
         self.version = reader.read_int32()
         self.entries = [reader.read_object(CustomFormatEntry)
                         for _ in range(reader.read_int32())]
+
+    def write(self, writer: BinaryWriter):
+        return super().write(writer)
 
 
 @dataclass
@@ -97,6 +109,9 @@ class EngineVersion(ISerializable):
         self.build = reader.read_int32()
         self.build_id = reader.read_str()
 
+    def write(self, writer: BinaryWriter):
+        return super().write(writer)
+
 
 @dataclass
 class Gvas(ISerializable):
@@ -105,7 +120,7 @@ class Gvas(ISerializable):
     package_version: int = None
     engine_version: EngineVersion = None
     custom_format: CustomFormat = None
-    raw: str = None
+    # raw: str = None
 
     def read(self, reader: BinaryReader):
         self.format = reader.read_bytes(4).decode('utf-8')
@@ -113,11 +128,14 @@ class Gvas(ISerializable):
         self.package_version = reader.read_int32()
         self.engine_version = reader.read_object(EngineVersion)
         self.custom_format = reader.read_object(CustomFormat)
-        self.raw = reader.buffer.read().hex()
+        # self.raw = reader.buffer.read().hex()
 
-
-def obj_to_sav(source_object, sav_path: str):
-    raise NotImplementedError
+    def write(self, writer: BinaryWriter):
+        writer.write_bytes('GVAS'.encode())
+        writer.write_int32(self.save_game_version)
+        writer.write_int32(self.package_version)
+        writer.write_object(self.engine_version)
+        writer.write_object(self.custom_format)
 
 
 def sav_to_obj(sav_path: str):
@@ -127,7 +145,12 @@ def sav_to_obj(sav_path: str):
     return gvas
 
 
-def obj_to_json(source_object, json_path: str):
+def obj_to_sav(source_object: ISerializable, sav_path: str):
+    with open(sav_path, 'wb') as f:
+        source_object.write(BinaryWriter(f))
+
+
+def obj_to_json(source_object: ISerializable, json_path: str):
     with open(json_path, 'w') as f:
         f.write(json.dumps(source_object, default=lambda o: o.__dict__, indent=4))
 
@@ -139,8 +162,12 @@ def json_to_obj(json_path: str):
 
 
 if __name__ == '__main__':
-    sav_sample = 'samples/04. tooth fall/Psychonauts2Save_0.sav', 'rb'
-    json_sample = 'samples/sample.json'
+    sav_original_path = 'samples/04. tooth fall/Psychonauts2Save_0.sav'
+    sav_patched_path = 'samples/patched.sav'
+    json_path = 'samples/sample.json'
+    gvas_original = sav_to_obj(sav_original_path)
+    obj_to_json(gvas_original, json_path)
+    gvas_patched = json_to_obj(json_path)
+    obj_to_sav(gvas_patched, sav_patched_path)
 
-    o = json_to_obj(json_sample)
-    o.print()
+    # gvas_patched.print()
