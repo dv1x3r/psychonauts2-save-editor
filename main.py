@@ -1,6 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from dataclasses_json import dataclass_json
 from io import BufferedReader
 from uuid import UUID
 from rich.pretty import pprint
@@ -22,6 +23,7 @@ class ISerializable(ABC):
 
 
 class BinaryReader:
+
     def __init__(self, buffer: BufferedReader):
         self.buffer = buffer
 
@@ -49,6 +51,7 @@ class BinaryReader:
 
 
 class BinaryWriter:
+
     def __init__(self, buffer: BufferedReader):
         self.buffer = buffer
 
@@ -58,14 +61,29 @@ class BinaryWriter:
     def write_bytes(self, data: bytes):
         self.buffer.write(data)
 
+    def write_int16(self, data: int):
+        self.buffer.write(int.to_bytes(data, 2, 'little'))
+
     def write_int32(self, data: int):
         self.buffer.write(int.to_bytes(data, 4, 'little'))
+
+    def write_str(self, data: str):
+        if data is None:
+            self.write_int32(0)
+        else:
+            self.write_int32(len(data) + 1)
+            self.buffer.write(data.encode())
+            self.buffer.write(b'\x00')
+
+    def write_uuid(self, data: str):
+        self.buffer.write(UUID(str(data)).bytes_le)
 
 
 class GvasProperty:
     pass
 
 
+@dataclass_json
 @dataclass
 class CustomFormatEntry(ISerializable):
     id: str = None
@@ -76,13 +94,13 @@ class CustomFormatEntry(ISerializable):
         self.value = reader.read_int32()
 
     def write(self, writer: BinaryWriter):
-        return super().write(writer)
+        writer.write_uuid(self.id)
+        writer.write_int32(self.value)
 
 
 @dataclass
 class CustomFormat(ISerializable):
     version: int = None
-    count: int = None
     entries: list[CustomFormatEntry] = None
 
     def read(self, reader: BinaryReader):
@@ -91,9 +109,13 @@ class CustomFormat(ISerializable):
                         for _ in range(reader.read_int32())]
 
     def write(self, writer: BinaryWriter):
-        return super().write(writer)
+        writer.write_int32(self.version)
+        writer.write_int32(len(self.entries))
+        for entry in self.entries:
+            writer.write_object(entry)
 
 
+@dataclass_json
 @dataclass
 class EngineVersion(ISerializable):
     major: int = None
@@ -110,9 +132,14 @@ class EngineVersion(ISerializable):
         self.build_id = reader.read_str()
 
     def write(self, writer: BinaryWriter):
-        return super().write(writer)
+        writer.write_int16(self.major)
+        writer.write_int16(self.minor)
+        writer.write_int16(self.patch)
+        writer.write_int32(self.build)
+        writer.write_str(self.build_id)
 
 
+@dataclass_json
 @dataclass
 class Gvas(ISerializable):
     format: str = None
@@ -120,7 +147,7 @@ class Gvas(ISerializable):
     package_version: int = None
     engine_version: EngineVersion = None
     custom_format: CustomFormat = None
-    # raw: str = None
+    raw: str = None
 
     def read(self, reader: BinaryReader):
         self.format = reader.read_bytes(4).decode('utf-8')
@@ -128,46 +155,47 @@ class Gvas(ISerializable):
         self.package_version = reader.read_int32()
         self.engine_version = reader.read_object(EngineVersion)
         self.custom_format = reader.read_object(CustomFormat)
-        # self.raw = reader.buffer.read().hex()
+        self.raw = reader.buffer.read().hex()
 
     def write(self, writer: BinaryWriter):
-        writer.write_bytes('GVAS'.encode())
+        writer.write_bytes(b'GVAS')
         writer.write_int32(self.save_game_version)
         writer.write_int32(self.package_version)
         writer.write_object(self.engine_version)
         writer.write_object(self.custom_format)
+        if self.raw is not None:
+            writer.buffer.write(bytes.fromhex(self.raw))
 
 
-def sav_to_obj(sav_path: str):
+def sav_to_gvas(sav_path: str):
     with open(sav_path, 'rb') as f:
         gvas = Gvas()
         gvas.read(BinaryReader(f))
     return gvas
 
 
-def obj_to_sav(source_object: ISerializable, sav_path: str):
+def gvas_to_sav(gvas: Gvas, sav_path: str):
     with open(sav_path, 'wb') as f:
-        source_object.write(BinaryWriter(f))
+        gvas.write(BinaryWriter(f))
 
 
-def obj_to_json(source_object: ISerializable, json_path: str):
+def gvas_to_json(gvas: Gvas, json_path: str):
     with open(json_path, 'w') as f:
-        f.write(json.dumps(source_object, default=lambda o: o.__dict__, indent=4))
+        f.write(gvas.to_json(indent=4))
 
 
-def json_to_obj(json_path: str):
+def json_to_gvas(json_path: str):
     with open(json_path, 'r') as f:
-        json_file = f.read()
-    return Gvas(**json.loads(json_file))
+        json_dump = f.read()
+    return Gvas.from_json(json_dump)
 
 
 if __name__ == '__main__':
     sav_original_path = 'samples/04. tooth fall/Psychonauts2Save_0.sav'
     sav_patched_path = 'samples/patched.sav'
     json_path = 'samples/sample.json'
-    gvas_original = sav_to_obj(sav_original_path)
-    obj_to_json(gvas_original, json_path)
-    gvas_patched = json_to_obj(json_path)
-    obj_to_sav(gvas_patched, sav_patched_path)
-
+    gvas_original = sav_to_gvas(sav_original_path)
+    gvas_to_json(gvas_original, json_path)
+    gvas_patched = json_to_gvas(json_path)
+    gvas_to_sav(gvas_patched, sav_patched_path)
     # gvas_patched.print()
