@@ -1,5 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from io import BufferedReader
 from uuid import UUID
 from rich.pretty import pprint
@@ -7,20 +8,17 @@ import json
 
 
 class ISerializable(ABC):
+
     def print(self):
         pprint(json.loads(json.dumps(self, default=lambda o: o.__dict__)))
-
-    def to_json(self, file_path: str):
-        with open(file_path, 'w') as f:
-            f.write(json.dumps(self, default=lambda o: o.__dict__, indent=4))
 
     @abstractmethod
     def read(self, reader: BinaryReader):
         raise NotImplementedError
 
     # @abstractmethod
-    # def write(self, writer: StreamWriter) -> ISerializable:
-    #     raise NotImplementedError
+    def write(self, writer: BinaryWriter) -> ISerializable:
+        raise NotImplementedError
 
 
 class BinaryReader:
@@ -62,21 +60,21 @@ class GvasProperty:
     pass
 
 
+@dataclass
 class CustomFormatEntry(ISerializable):
-    def __init__(self):
-        self.id: str
-        self.value: int
+    id: str = None
+    value: int = None
 
     def read(self, reader: BinaryReader):
         self.id = reader.read_uuid()
         self.value = reader.read_int32()
 
 
+@dataclass
 class CustomFormat(ISerializable):
-    def __init__(self):
-        self.version: int
-        self.count: int
-        self.entries: list[CustomFormatEntry]
+    version: int = None
+    count: int = None
+    entries: list[CustomFormatEntry] = None
 
     def read(self, reader: BinaryReader):
         self.version = reader.read_int32()
@@ -84,13 +82,13 @@ class CustomFormat(ISerializable):
                         for _ in range(reader.read_int32())]
 
 
+@dataclass
 class EngineVersion(ISerializable):
-    def __init__(self):
-        self.major: int
-        self.minor: int
-        self.patch: int
-        self.build: int
-        self.build_id: str
+    major: int = None
+    minor: int = None
+    patch: int = None
+    build: int = None
+    build_id: str = None
 
     def read(self, reader: BinaryReader):
         self.major = reader.read_int16()
@@ -100,14 +98,14 @@ class EngineVersion(ISerializable):
         self.build_id = reader.read_str()
 
 
+@dataclass
 class Gvas(ISerializable):
-    def __init__(self):
-        self.format: str
-        self.save_game_version: int
-        self.package_version: int
-        self.engine_version: EngineVersion
-        self.custom_format: CustomFormat
-        self.raw: str
+    format: str = None
+    save_game_version: int = None
+    package_version: int = None
+    engine_version: EngineVersion = None
+    custom_format: CustomFormat = None
+    raw: str = None
 
     def read(self, reader: BinaryReader):
         self.format = reader.read_bytes(4).decode('utf-8')
@@ -118,10 +116,31 @@ class Gvas(ISerializable):
         self.raw = reader.buffer.read().hex()
 
 
-if __name__ == '__main__':
-    with open('samples/04. tooth fall/Psychonauts2Save_0.sav', 'rb') as f:
-        reader = BinaryReader(f)
+def obj_to_sav(source_object, sav_path: str):
+    raise NotImplementedError
+
+
+def sav_to_obj(sav_path: str):
+    with open(sav_path, 'rb') as f:
         gvas = Gvas()
-        gvas.read(reader)
-        # gvas.print()
-        gvas.to_json('samples/sample.json')
+        gvas.read(BinaryReader(f))
+    return gvas
+
+
+def obj_to_json(source_object, json_path: str):
+    with open(json_path, 'w') as f:
+        f.write(json.dumps(source_object, default=lambda o: o.__dict__, indent=4))
+
+
+def json_to_obj(json_path: str):
+    with open(json_path, 'r') as f:
+        json_file = f.read()
+    return Gvas(**json.loads(json_file))
+
+
+if __name__ == '__main__':
+    sav_sample = 'samples/04. tooth fall/Psychonauts2Save_0.sav', 'rb'
+    json_sample = 'samples/sample.json'
+
+    o = json_to_obj(json_sample)
+    o.print()
