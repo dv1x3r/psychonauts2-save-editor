@@ -6,7 +6,7 @@ The purpose of this script is to decode .sav file into human readable .json for 
 
 ## Warning
 
-- **Script is still in development, and not decoder is not fully operational.**  
+- **Script is still in development, and decoder is not fully operational.**  
 - **Some data structures are still exported to .json in raw hex format.**  
 - **Please do backups for your original .sav files.**  
 
