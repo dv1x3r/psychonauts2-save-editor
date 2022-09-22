@@ -36,13 +36,13 @@ class BinaryReader:
         return self.buffer.read(size)
 
     def read_int16(self):
-        return int.from_bytes(self.buffer.read(2), 'little')
+        return int.from_bytes(self.read_bytes(2), 'little')
 
     def read_int32(self):
-        return int.from_bytes(self.buffer.read(4), 'little')
+        return int.from_bytes(self.read_bytes(4), 'little')
 
     def read_int64(self):
-        return int.from_bytes(self.buffer.read(8), 'little')
+        return int.from_bytes(self.read_bytes(8), 'little')
 
     def read_str(self):
         if (length := self.read_int32()) == 0:
@@ -57,10 +57,6 @@ class BinaryReader:
         if terminator != b'\x00':
             raise Exception(f'Terminator is {terminator}, but expected 0x00')
 
-    def read_UInt32Property(self, length: int):
-        self.read_terminator()
-        return self.read_int32()
-
 
 class BinaryWriter:
 
@@ -74,24 +70,27 @@ class BinaryWriter:
         self.buffer.write(data)
 
     def write_int16(self, data: int):
-        self.buffer.write(int.to_bytes(data, 2, 'little'))
+        self.write_bytes(int.to_bytes(data, 2, 'little'))
 
     def write_int32(self, data: int):
-        self.buffer.write(int.to_bytes(data, 4, 'little'))
+        self.write_bytes(int.to_bytes(data, 4, 'little'))
 
     def write_int64(self, data: int):
-        self.buffer.write(int.to_bytes(data, 8, 'little'))
+        self.write_bytes(int.to_bytes(data, 8, 'little'))
 
     def write_str(self, data: str):
         if data is None:
             self.write_int32(0)
         else:
             self.write_int32(len(data) + 1)
-            self.buffer.write(data.encode())
-            self.buffer.write(b'\x00')
+            self.write_bytes(data.encode())
+            self.write_bytes(b'\x00')
 
     def write_uuid(self, data: str):
-        self.buffer.write(UUID(str(data)).bytes_le)
+        self.write_bytes(UUID(str(data)).bytes_le)
+
+    def write_terminator(self):
+        self.write_bytes(b'\x00')
 
 
 @dataclass
@@ -105,10 +104,29 @@ class UEProperty(ISerializable):
         self.name = reader.read_str()
         self.type = reader.read_str()
         self.length = reader.read_int64()
-        self.value = getattr(reader, f'read_{self.type}')(self.length)
+        self.value = getattr(self, f'read_{self.type}')(reader, self.length)
+
+    def read_UInt32Property(self, reader: BinaryReader, length: int):
+        reader.read_terminator()
+        return reader.read_int32()
+
+    def read_ArrayProperty(self, reader: BinaryReader, length: int):
+        item_type = reader.read_str()
+        reader.read_terminator()
+        item_length = reader.read_int32()
+        return getattr(self, f'read_{item_type}')(reader, item_length)
+
+    def read_ByteProperty(self, reader: BinaryReader, length: int):
+        return reader.read_bytes(length).hex()
+
+    def read_MapProperty(self, reader: BinaryReader, length: int):
+        raise NotImplementedError
 
     def write(self, writer: BinaryWriter):
-        return super().write(writer)
+        writer.write_str(self.name)
+        writer.write_str(self.type)
+        writer.write_int64(self.length)
+        getattr(self, f'write_{self.type}')(writer, self.length)
 
 
 @dataclass
@@ -174,7 +192,7 @@ class Gvas(ISerializable):
     engine_version: EngineVersion = None
     custom_format: CustomFormat = None
     save_game_type: str = None
-    # properties: list[UEProperty] = None
+    properties: list[UEProperty] = None
     raw: str = None
 
     def read(self, reader: BinaryReader):
@@ -184,8 +202,9 @@ class Gvas(ISerializable):
         self.engine_version = reader.read_object(EngineVersion)
         self.custom_format = reader.read_object(CustomFormat)
         self.save_game_type = reader.read_str()
-        # self.properties = []
-        # self.properties.append(reader.read_object(UEProperty))
+        self.properties = []
+        self.properties.append(reader.read_object(UEProperty))
+        self.properties.append(reader.read_object(UEProperty))
         # self.properties.append(reader.read_object(UEProperty))
         self.raw = reader.buffer.read().hex()
 
@@ -196,7 +215,7 @@ class Gvas(ISerializable):
         writer.write_object(self.engine_version)
         writer.write_object(self.custom_format)
         writer.write_str(self.save_game_type)
-        writer.buffer.write(bytes.fromhex(self.raw))
+        writer.write_bytes(bytes.fromhex(self.raw))
 
 
 def sav_to_gvas(sav_path: str):
