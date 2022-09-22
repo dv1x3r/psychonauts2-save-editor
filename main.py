@@ -41,13 +41,25 @@ class BinaryReader:
     def read_int32(self):
         return int.from_bytes(self.buffer.read(4), 'little')
 
+    def read_int64(self):
+        return int.from_bytes(self.buffer.read(8), 'little')
+
     def read_str(self):
         if (length := self.read_int32()) == 0:
             return None
-        return self.read_bytes(length).decode('utf-8')[:-1]
+        return self.read_bytes(length).decode('ascii')[:-1]
 
     def read_uuid(self):
         return str(UUID(bytes_le=self.read_bytes(16)))
+
+    def read_terminator(self):
+        terminator = self.read_bytes(1)
+        if terminator != b'\x00':
+            raise Exception(f'Terminator is {terminator}, but expected 0x00')
+
+    def read_UInt32Property(self, length: int):
+        self.read_terminator()
+        return self.read_int32()
 
 
 class BinaryWriter:
@@ -67,6 +79,9 @@ class BinaryWriter:
     def write_int32(self, data: int):
         self.buffer.write(int.to_bytes(data, 4, 'little'))
 
+    def write_int64(self, data: int):
+        self.buffer.write(int.to_bytes(data, 8, 'little'))
+
     def write_str(self, data: str):
         if data is None:
             self.write_int32(0)
@@ -79,8 +94,21 @@ class BinaryWriter:
         self.buffer.write(UUID(str(data)).bytes_le)
 
 
-class GvasProperty:
-    pass
+@dataclass
+class UEProperty(ISerializable):
+    name: str = None
+    type: str = None
+    length: int = None
+    value: any = None
+
+    def read(self, reader: BinaryReader):
+        self.name = reader.read_str()
+        self.type = reader.read_str()
+        self.length = reader.read_int64()
+        self.value = getattr(reader, f'read_{self.type}')(self.length)
+
+    def write(self, writer: BinaryWriter):
+        return super().write(writer)
 
 
 @dataclass
@@ -145,14 +173,20 @@ class Gvas(ISerializable):
     package_version: int = None
     engine_version: EngineVersion = None
     custom_format: CustomFormat = None
+    save_game_type: str = None
+    # properties: list[UEProperty] = None
     raw: str = None
 
     def read(self, reader: BinaryReader):
-        self.format = reader.read_bytes(4).decode('utf-8')
+        self.format = reader.read_bytes(4).decode('ascii')
         self.save_game_version = reader.read_int32()
         self.package_version = reader.read_int32()
         self.engine_version = reader.read_object(EngineVersion)
         self.custom_format = reader.read_object(CustomFormat)
+        self.save_game_type = reader.read_str()
+        # self.properties = []
+        # self.properties.append(reader.read_object(UEProperty))
+        # self.properties.append(reader.read_object(UEProperty))
         self.raw = reader.buffer.read().hex()
 
     def write(self, writer: BinaryWriter):
@@ -161,8 +195,8 @@ class Gvas(ISerializable):
         writer.write_int32(self.package_version)
         writer.write_object(self.engine_version)
         writer.write_object(self.custom_format)
-        if self.raw is not None:
-            writer.buffer.write(bytes.fromhex(self.raw))
+        writer.write_str(self.save_game_type)
+        writer.buffer.write(bytes.fromhex(self.raw))
 
 
 def sav_to_gvas(sav_path: str):
@@ -194,6 +228,6 @@ if __name__ == '__main__':
     json_path = 'samples/sample.json'
     gvas_original = sav_to_gvas(sav_original_path)
     gvas_to_json(gvas_original, json_path)
-    gvas_patched = json_to_gvas(json_path)
-    gvas_to_sav(gvas_patched, sav_patched_path)
+    # gvas_patched = json_to_gvas(json_path)
+    # gvas_to_sav(gvas_patched, sav_patched_path)
     # gvas_patched.print()
